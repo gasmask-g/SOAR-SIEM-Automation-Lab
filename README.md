@@ -1,4 +1,3 @@
-<img src="https://r2cdn.perplexity.ai/pplx-full-logo-primary-dark%402x.png" class="logo" width="120"/>
 
 # Enhanced Security Incident Management with Wazuh \& SOAR Automation
 
@@ -305,5 +304,4 @@ for root,_,files in os.walk(downloads_folder):
 
 *Happy Hunting!*
 
-<div style="text-align: center">⁂</div>
 
