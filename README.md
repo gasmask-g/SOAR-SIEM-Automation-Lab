@@ -2,27 +2,25 @@
 
 ## 📋 Table of Contents
 
-1. [About The Project]
-2. [System Architecture]
-3. [Key Features]
-4. [Technology Stack]
-5. [Prerequisites]
-6. [Installation & Deployment]
-
-   * [1. Wazuh Deployment]
-   * [2. n8n Deployment]
-7. [Configuration & Integration]
-
-   * [Step 1: Configuring Wazuh Manager]
-   * [Step 2: Creating the Integration Script]
-   * [Step 3: Setting up Google Gemini AI]
-   * [Step 4: Building the n8n Workflow]
-8. [Workflow Logic]
-9. [Usage & Testing]
-10. [Troubleshooting]
-11. [Roadmap]
-12. [Contributing]
-13. [License]
+1.  [About The Project](#-about-the-project)
+2.  [System Architecture](#-system-architecture)
+3.  [Key Features](#-key-features)
+4.  [Technology Stack](#-technology-stack)
+5.  [Prerequisites](#-prerequisites)
+6.  [Installation & Deployment](#-installation--deployment)
+    * [1. Wazuh Deployment](#1-wazuh-deployment)
+    * [2. n8n Deployment](#2-n8n-deployment)
+7.  [Configuration & Integration](#-configuration--integration)
+    * [Step 1: Configuring Wazuh Manager](#step-1-configuring-wazuh-manager)
+    * [Step 2: Creating the Integration Script (custom-n8n.py)](#step-2-creating-the-integration-script-(custom-n8n.py))
+    * [Step 3: Setting up Google Gemini AI](#step-3-setting-up-google-gemini-ai)
+    * [Step 4: Building the n8n Workflow](#step-4-building-the-n8n-workflow)
+8.  [Workflow Logic](#-workflow-logic)
+9.  [Usage & Testing](#-usage--testing)
+10. [Troubleshooting](#-troubleshooting)
+11. [Roadmap](#-roadmap)
+12. [Contributing](#-contributing)
+13. [License](#-license)
 
 ---
 
@@ -54,7 +52,7 @@ The SILGAX architecture follows a modular, event-driven design:
 6. **Response & Notification:** Based on the AI's verdict:
 
    * **High Severity:** Alert sent to Slack #soc-critical and Email to Admin.
-   * **Low Severity:** Logged for review, summary sent to Slack #soc-general.
+   * **Medium Severity:** Logged for review, summary sent to Slack #soc-general.
 
 ---
 
@@ -76,7 +74,7 @@ The SILGAX architecture follows a modular, event-driven design:
 
 | Component          | Technology              | Description                                                   |
 | :----------------- | :---------------------- | :------------------------------------------------------------ |
-| **SIEM / XDR**     | Wazuh 4.7+              | Log analysis, file integrity monitoring, intrusion detection. |
+| **SIEM / XDR**     | Wazuh 4.14 (Current)    | Log analysis, file integrity monitoring, intrusion detection. |
 | **Orchestrator**   | n8n                     | Workflow automation tool connecting disparate APIs.           |
 | **Intelligence**   | Google Gemini AI        | LLM for natural language summary and threat scoring.          |
 | **Notification**   | Slack API               | Real-time messaging and ChatOps.                              |
@@ -92,7 +90,7 @@ Before deploying SILGAX, ensure you have the following:
 
 * **Hardware:**
 
-  * Minimum 8GB RAM (16GB Recommended for smooth ELK/Wazuh performance).
+  * Minimum 8GB RAM (16GB Recommended for smooth Wazuh performance).
   * 4 vCPUs.
   * 100GB Disk Space.
 * **Software:**
@@ -104,7 +102,7 @@ Before deploying SILGAX, ensure you have the following:
 
   * **Google Cloud Project** with Gemini API enabled.
   * **Slack App** webhook URL or Bot Token.
-  * **Gmail** App Password (for SMTP) or OAuth Client ID.
+  * **Gmail** API OAuth Client ID.
 
 ---
 
@@ -115,7 +113,7 @@ Before deploying SILGAX, ensure you have the following:
 We utilize the standard Docker single-node deployment for Wazuh.
 
 ```bash
-git clone https://github.com/wazuh/wazuh-docker.git -b v4.7.2
+git clone https://github.com/wazuh/wazuh-docker.git
 cd wazuh-docker/single-node
 docker-compose -f generate-indexer-certs.yml run --rm generator
 docker-compose up -d
@@ -162,49 +160,72 @@ Add inside `ossec.conf`:
 
 ### Step 2: Creating the Integration Script
 
-```python
-#!/usr/bin/env python3
-import sys, json, requests
-alert_file = sys.argv[1]
-with open(alert_file) as f:
-    alert_json = json.load(f)
-payload = {"title": "Wazuh Alert", "alert": alert_json}
-requests.post(sys.argv[3], json=payload)
+
+Restart Wazuh Manager:
+```bash
+docker exec -it wazuh.manager systemctl restart wazuh-manager
 ```
 
 ### Step 3: Setting up Google Gemini AI
 
 Create API key → Add to n8n Credentials.
+1. Go to [Google AI Studio](https://aistudio.google.com/).
+2. Create a new API Key.
+3. In n8n, go to **Credentials** -\> **New** -\> **Google Gemini API**.
+4. Paste your API Key.
 
 ### Step 4: Building the n8n Workflow
 
-Prompt example:
+The n8n workflow is the heart of SILGAX.
+**Workflow Nodes:**
+1. **Webhook Node:**
+   * Method: POST
+   * Path: /wazuh-alert
+   * Authentication: None (or Header Auth if configured).
+3. **Edit Fields (Data Cleaning):**
+   * Extract rule.description, agent.name, src_ip, full_log.
+5. **Google Gemini Chat Model Node:**
+   * **Sample Prompt:**
 
 ```
 You are a Cyber Security Analyst. Analyze the following Wazuh SIEM alert.
-...
-Provide JSON with keys: summary, severity_score, recommendation.
+
+1. Summarize the threat in plain English.
+2. Assess the severity (Low/Medium/High/Critical).
+3. Recommend immediate mitigation steps.
+4. Provide a JSON formatted output with keys: "summary", "severity_score", "recommendation".
 ```
 
 ---
 
 ## 🧠 Workflow Logic
 
-1. Ingestion
-2. Filter
-3. Enrichment
-4. AI Analysis
-5. Route
+The logic flow ensures efficiency and accuracy:
+1. **Ingestion:** Alert received.
+2. **Filter:** Is the alert known false positive? (Checked against a local exclusion list in n8n Function node).
+3. **Enrichment:** * *Optional:* Query VirusTotal API for src_ip reputation (if IP exists).
+4. **AI Analysis:** Gemini receives the enriched data. * *Example Input:* "SSH Brute force detection from 192.168.1.50" * *Gemini Output:* "Potential unauthorized access attempt. The IP 192.168.1.50 has failed authentication 10 times in 2 minutes. Severity: High. Recommendation: Block IP in firewall."
+5. **Route:** * **Critical:** Slack ping + Email + Create Ticket (Jira/ServiceNow - *Future*). * **Info:** Log to Google Sheets for weekly reporting.
 
 ---
 
 ## 📊 Usage & Testing
 
-Simulate brute-force:
-
+### Simulating an Attack
+To verify SILGAX is working, simulate a brute-force attack on a monitored agent.
+1. **Attack:** From a different machine:
 ```bash
-hydra -l root -P /usr/share/wordlists/rockyou.txt ssh://<AGENT_IP>
+    hydra -l root -P /usr/share/wordlists/rockyou.txt ssh://<AGENT_IP>
 ```
+2. **Observation:**
+   * Wazuh Dashboard triggers "SSHD brute force attempt" (Rule ID 5710).
+   * Check ossec.log: sending message to custom-n8n...
+   * **n8n Interface:** See the execution flow light up.
+   * **Slack:** Receive a message:
+     > 🚨 **Critical Security Alert**
+     > **Threat:** SSH Brute Force
+     > **AI Analysis:** Multiple failed logins detected. Likely automated dictionary attack.
+     > **Action:** Verify user identity or ban IP.
 
 ---
 
@@ -212,14 +233,24 @@ hydra -l root -P /usr/share/wordlists/rockyou.txt ssh://<AGENT_IP>
 
 | Issue                | Cause             | Solution      |
 | -------------------- | ----------------- | ------------- |
-| Alerts not appearing | Integration error | Check logs    |
-| Gemini 429           | Rate limit        | Add Wait node |
-| Empty Slack message  | Parsing error     | Validate JSON |
-| Docker networking    | Isolation         | Same network  |
+| Alerts not appearing | Integration error | Check `/var/ossec/logs/integrations.log` for Python script errors. Ensure permissions are 750 for custom script.    |
+| Gemini API Error 429           | Rate limit        | Implement a "Wait" node or upgrade plan. |
+| Empty Slack message  | Parsing error     | Ensure the Gemini output is strictly formatted. Use `JSON.parse()` in a Function node before sending to Slack. |
+| Docker networking    | Isolation         | Ensure Wazuh and n8n are on the same Docker network or use the Host IP.  |
 
 ---
 
 ## 🗺 Roadmap
 
-* [ ] Phase 1
-* [ ] Phase
+* [ ] **Phase 1:** Basic Integration (Wazuh -\> n8n -\> Gmail) [COMPLETED]
+* [ ] **Phase 2:** AI Integration (Gemini Contextualization) [COMPLETED]
+* [ ] **Phase 3:** Two-way communication (Approve IP Ban via Slack Button)
+* [ ] **Phase 4:** Threat Intelligence Feed Integration (AbuseIPDB, VirusTotal)
+* [ ] **Phase 5:** Automated Reporting (PDF Generation of Weekly Incidents)
+
+---
+
+📄 License
+Distributed under the MIT License. See LICENSE for more information.
+
+---
