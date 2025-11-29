@@ -1,307 +1,225 @@
-
-# Enhanced Security Incident Management with Wazuh \& SOAR Automation
-
-A step-by-step guide to deploy a Security Information and Event Management (SIEM) solution using Wazuh, integrated with SOAR tools (Shuffle \& TheHive) for automated incident response.
-
-## Table of Contents
-
-- [Overview](#overview)
-- [Architecture](#architecture)
-- [Prerequisites](#prerequisites)
-- [Lab Setup](#lab-setup)
-- [Installing Wazuh](#installing-wazuh)
-- [Installing TheHive](#installing-thehive)
-- [Deploying Wazuh Agent on Windows](#deploying-wazuh-agent-on-windows)
-- [Configuring Sysmon Telemetry](#configuring-sysmon-telemetry)
-- [Capturing Mimikatz \& Custom Rule](#capturing-mimikatz--custom-rule)
-- [Integrating Shuffle for Automation](#integrating-shuffle-for-automation)
-- [Enrichment with VirusTotal](#enrichment-with-virustotal)
-- [Creating Alerts in TheHive](#creating-alerts-in-thehive)
-- [Active Response Workflow](#active-response-workflow)
-- [Cleanup \& Next Steps](#cleanup--next-steps)
-
-
-## Overview
-
-Implement a cloud-hosted Wazuh server to collect and analyze logs, a SOAR automation layer (Shuffle) to enrich and forward alerts, and TheHive for incident management. Upon detection (e.g., Mimikatz execution), alerts are automated through Shuffle workflows, enriched via VirusTotal, and pushed to TheHive. Final active-response actions can remove threats automatically.
-
-## Architecture
-
-```text
-Windows10 VM (Sysmon + Wazuh Agent)
-          │
-          ▼
-    Wazuh Manager (Cloud VM)
-          │ —–> Shuffle (Webhook, HTTP, user-input, VirusTotal, Wazuh API)
-          │
-          ▼
-      TheHive (Cloud VM)
-```
-
-
-## Prerequisites
-
-- VMware or VirtualBox with a Windows 10 VM
-- Cloud provider account (e.g., Google Cloud with \$300/90 days credit)
-- Static public IPs, firewall rules restricted to your IP
-- Domain knowledge: Linux shell, Windows PowerShell
-
-
-## Lab Setup
-
-1. **Windows 10 VM**
-    - Install Sysmon with [sysmon-modular config](https://github.com/SwiftOnSecurity/sysmon-config).
-    - Command:
-
-```powershell
-.\Sysmon64.exe -i .\sysmonconfig.xml
-```
-
-2. **Cloud VMs** for Wazuh \& TheHive:
-    - Ubuntu 22.04 LTS x64
-    - 8 GB RAM, 2 vCPUs, 160 GB disk
-    - Static public IP
-    - Firewall: allow only your IP on required ports
-
-## Installing Wazuh
-
-SSH into your Wazuh VM:
-
-```bash
-sudo apt-get update && sudo apt-get upgrade -y
-curl -sO https://packages.wazuh.com/4.7/wazuh-install.sh
-sudo bash ./wazuh-install.sh -a
-sudo tar -xvf wazuh-install-files.tar  # extract credentials
-```
-
-Access: `https://<WAZUH_IP>`
-
-## Installing TheHive
-
-SSH into your TheHive VM:
-
-```bash
-sudo apt-get update && sudo apt-get upgrade -y
-sudo apt install wget gnupg apt-transport-https git ca-certificates python3-pip lsb-release
-# Java (Amazon Corretto 11)
-wget -qO- https://apt.corretto.aws/corretto.key \
-  | sudo gpg --dearmor -o /usr/share/keyrings/corretto.gpg
-echo "deb [signed-by=/usr/share/keyrings/corretto.gpg] https://apt.corretto.aws stable main" \
-  | sudo tee /etc/apt/sources.list.d/corretto.list
-sudo apt update && sudo apt install java-11-amazon-corretto-jdk
-# Cassandra
-wget -qO- https://downloads.apache.org/cassandra/KEYS \
-  | sudo gpg --dearmor -o /usr/share/keyrings/cassandra-archive.gpg
-echo "deb [signed-by=/usr/share/keyrings/cassandra-archive.gpg] https://debian.cassandra.apache.org 40x main" \
-  | sudo tee /etc/apt/sources.list.d/cassandra.list
-sudo apt update && sudo apt install cassandra
-# Elasticsearch 7.x
-wget -qO- https://artifacts.elastic.co/GPG-KEY-elasticsearch \
-  | sudo gpg --dearmor -o /usr/share/keyrings/elasticsearch-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/elasticsearch-keyring.gpg] https://artifacts.elastic.co/packages/7.x/apt stable main" \
-  | sudo tee /etc/apt/sources.list.d/elastic-7.x.list
-sudo apt update && sudo apt install elasticsearch
-# TheHive
-wget -O- https://archives.strangebee.com/keys/strangebee.gpg \
-  | sudo gpg --dearmor -o /usr/share/keyrings/strangebee-archive-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/strangebee-archive-keyring.gpg] https://deb.strangebee.com thehive-5.2 main" \
-  | sudo tee /etc/apt/sources.list.d/strangebee.list
-sudo apt update && sudo apt install -y thehive
-```
-
-Configure Cassandra (`/etc/cassandra/cassandra.yaml`), Elasticsearch (`/etc/elasticsearch/elasticsearch.yml`), and TheHive (`/etc/thehive/application.conf`) to use your VM’s public IP.
-Start \& enable services:
-
-```bash
-sudo systemctl enable --now cassandra elasticsearch thehive
-```
-
-Access: `http://<THEHIVE_IP>:9000`
-Default: `admin@thehive.local` / `secret`
-
-## Deploying Wazuh Agent on Windows
-
-1. In Wazuh UI → **Add Agent** → Windows package.
-2. Fill Wazuh server IP, assign agent name.
-3. Run generated PowerShell command as Administrator.
-4. Start agent:
-
-```powershell
-NET START WazuhSvc
-```
-
-5. Verify in Wazuh UI → **Agents**
-
-## Configuring Sysmon Telemetry
-
-On Windows 10 agent, locate full channel name in Event Viewer:
-`Microsoft-Windows-Sysmon/Operational`
-
-Edit `C:\Program Files (x86)\ossec-agent\ossec.conf`:
-
-```xml
-<localfile>
-  <location>Microsoft-Windows-Sysmon/Operational</location>
-  <log_format>eventchannel</log_format>
-</localfile>
-```
-
-Remove other `<localfile>` entries under `<log_analysis>`. Restart Wazuh agent service.
-
-## Capturing Mimikatz \& Custom Rule
-
-1. Download `mimikatz_trunk.zip`; exclude from Defender.
-2. Enable full logging in Wazuh manager (`/var/ossec/etc/ossec.conf`):
-
-```xml
-<logall>yes</logall>
-<logall_json>yes</logall_json>
-```
-
-3. Restart Wazuh manager \& Filebeat (`/etc/filebeat/filebeat.yml`: `archives.enabled: true`).
-4. In Wazuh UI → **Management** → **Rules** → **local_rules.xml**, add:
-
-```xml
-<rule id="100002" level="15">
-  <if_group>sysmon_event1</if_group>
-  <field name="win.eventdata.originalFileName" type="pcre2">
-    (?i)mimikatz\.exe
-  </field>
-  <description>Mimikatz Execution Detected</description>
-  <mitre>
-    <id>T1003</id>
-  </mitre>
-</rule>
-```
-
-5. Restart manager and test by renaming \& executing Mimikatz.
-
-## Integrating Shuffle for Automation
-
-1. Create an account at [shuffler.io](https://shuffler.io).
-2. Workflows → **Create Workflow** → **Webhook** trigger.
-3. Copy provided webhook URL and add to Wazuh (`/var/ossec/etc/ossec.conf`):
-
-```xml
-<integration>
-  <name>shuffle</name>
-  <hook_url>YOUR_WEBHOOK_URL</hook_url>
-  <rule_id>100002</rule_id>
-  <alert_format>json</alert_format>
-</integration>
-```
-
-4. Restart Wazuh manager.
-5. In Shuffle workflow:
-    - **Webhook** → **SHA256 Regex** (extract `$..sha256$`).
-    - **HTTP (GET_API)**:
-
-```bash
-curl -u API_USER:API_PASS -k \
-  -X GET "https://<WAZUH_IP>:55000/security/user/authenticate?raw=true"
-```
-
-    - **VirusTotal** node (authenticate with API key).
-    - **User Input** node (email to SOC Analyst).
-    - **Wazuh** node: Run Command → `remove-threat` → agent ID.
-    - **Email** node: notify threat neutralized.
-
-Trigger on Mimikatz execution to test full flow.
-
-## Enrichment with VirusTotal
-
-- SHA256 Regex node extracts file hash.
-- VirusTotal node scans hash across engines; returns malicious verdict.
-
-
-## Creating Alerts in TheHive
-
-1. Install TheHive app in Shuffle.
-2. Authenticate using service account API key.
-3. **Create Alert** action with JSON body:
-
-```json
-{
-  "type": "alert",
-  "description": "Mimikatz detected. Investigate immediately.",
-  "summary": "Mimikatz execution on host $exec..computer",
-  "tags": ["T1003"],
-  "severity": "2",
-  "source": "Wazuh",
-  "flag": true,
-  "status": "New"
-}
-```
-
-4. Rerun workflow; verify alert in TheHive UI under your SOC user.
-
-## Active Response Workflow
-
-### Python Cleanup Script
-
-```python
-import os, hashlib, psutil
-
-downloads_folder = r'C:\Users\<USER>\Downloads'
-known_hashes = ["29efd64dd3c7fe1e2b022b7ad73a1ba5", "bb8bdb3e8c92e97e2f63626bc3b254c4"]
-
-def calculate_file_hash(path):
-    h = hashlib.md5()
-    with open(path,'rb') as f:
-        for chunk in iter(lambda: f.read(8192), b''):
-            h.update(chunk)
-    return h.hexdigest()
-
-def terminate_and_delete(path):
-    for p in psutil.process_iter(['pid','exe']):
-        if p.info['exe'] == path:
-            p.terminate(); p.wait()
-    os.remove(path)
-
-for root,_,files in os.walk(downloads_folder):
-    for name in files:
-        path = os.path.join(root,name)
-        if calculate_file_hash(path) in known_hashes:
-            terminate_and_delete(path)
-```
-
-- Convert to EXE (`remove_threat.exe`).
-- Add to `/var/ossec/etc/ossec.conf`:
-
-```xml
-<command>
-  <name>remove-threat</name>
-  <executable>remove_threat.exe</executable>
-  <timeout_allowed>no</timeout_allowed>
-</command>
-<active-response>
-  <disabled>no</disabled>
-  <command>remove-threat</command>
-  <location>local</location>
-  <rules_id>100092</rules_id>
-</active-response>
-```
-
-- Restart Wazuh manager.
-
-
-### Shuffle Adjustments
-
-- **HTTP (GET_API)** for JWT
-- **User Input** for SOC decision (True/False)
-- **Wazuh** Run Command (remove-threat)
-- **Email** notify completion
-
-
-## Cleanup \& Next Steps
-
-- Review firewall and logs.
-- Extend Telemetry (Linux, network devices).
-- Add additional SOAR playbooks in Shuffle (phishing, lateral movement).
-- Integrate threat intelligence feeds.
+# SILGAX: AI-Powered Security Orchestration, Automation, and Response (SOAR) Platform
+
+## 📋 Table of Contents
+
+1. [About The Project]
+2. [System Architecture]
+3. [Key Features]
+4. [Technology Stack]
+5. [Prerequisites]
+6. [Installation & Deployment]
+
+   * [1. Wazuh Deployment]
+   * [2. n8n Deployment]
+7. [Configuration & Integration]
+
+   * [Step 1: Configuring Wazuh Manager]
+   * [Step 2: Creating the Integration Script]
+   * [Step 3: Setting up Google Gemini AI]
+   * [Step 4: Building the n8n Workflow]
+8. [Workflow Logic]
+9. [Usage & Testing]
+10. [Troubleshooting]
+11. [Roadmap]
+12. [Contributing]
+13. [License]
 
 ---
 
-*Happy Hunting!*
+## 🛡 About The Project
 
+**SILGAX** is an advanced Security Orchestration, Automation, and Response (SOAR) platform designed to bridge the gap between detection and remediation. By integrating **Wazuh** (Open Source XDR/SIEM) with **n8n** (Workflow Automation), SILGAX automates the incident response lifecycle.
 
+Crucially, SILGAX leverages **Google's Gemini AI** to act as a Level 1 Security Analyst. Instead of flooding security teams with raw logs, SILGAX intercepts alerts, analyzes them using Generative AI to determine context, severity, and potential mitigation steps, and then routes intelligent notifications via **Slack** and **Gmail**.
+
+### Why SILGAX?
+
+Traditional SIEMs generate thousands of alerts. SOC analysts often suffer from "alert fatigue," missing critical threats amidst the noise. SILGAX solves this by:
+
+1. **Enriching Data:** Automatically gathering context around an IP or event.
+2. **AI Analysis:** Using LLMs to interpret "fuzzy" threats that rule-based engines might misclassify.
+3. **Instant Notification:** delivering formatted, actionable reports to communication channels.
+
+---
+
+## 🏗 System Architecture
+
+The SILGAX architecture follows a modular, event-driven design:
+
+1. **Data Collection:** Wazuh Agents installed on endpoints (Windows/Linux/macOS) collect logs (Syslog, Auth, Apache, etc.) and forward them to the Wazuh Manager.
+2. **Detection:** Wazuh Manager analyzes logs against its ruleset. If a rule is triggered, an alert is generated.
+3. **Orchestration Trigger:** The Wazuh Integrator daemon triggers a custom script/webhook based on alert level.
+4. **Automation (The Brain):** **n8n** receives the alert JSON payload via a Webhook node.
+5. **Cognitive Processing:** n8n passes the alert data to **Gemini AI** via API. The AI analyzes the payload for malicious intent and suggests remediation.
+6. **Response & Notification:** Based on the AI's verdict:
+
+   * **High Severity:** Alert sent to Slack #soc-critical and Email to Admin.
+   * **Low Severity:** Logged for review, summary sent to Slack #soc-general.
+
+---
+
+## 🚀 Key Features
+
+* **Real-time Threat Detection:** Leverages Wazuh's decoders and rules for immediate threat identification.
+* **Generative AI Analysis:** Uses Google Gemini Pro to explain *why* an event is dangerous and recommend specific commands for remediation.
+* **Multi-Channel Alerting:**
+
+  * **Slack:** Interactive Block Kit messages with "Ban IP" or "Isolate Host" buttons (planned).
+  * **Gmail:** Detailed HTML reports including raw logs and AI analysis.
+* **No-Code/Low-Code Logic:** All orchestration logic is handled in n8n, allowing for easy modification of workflows without recompiling code.
+* **Scalability:** containerized architecture (Docker) allows for easy scaling of the worker nodes.
+* **Customizable Thresholds:** Define exactly which alerts (e.g., Severity > 10) trigger the AI analysis to save on API costs.
+
+---
+
+## 💻 Technology Stack
+
+| Component          | Technology              | Description                                                   |
+| :----------------- | :---------------------- | :------------------------------------------------------------ |
+| **SIEM / XDR**     | Wazuh 4.7+              | Log analysis, file integrity monitoring, intrusion detection. |
+| **Orchestrator**   | n8n                     | Workflow automation tool connecting disparate APIs.           |
+| **Intelligence**   | Google Gemini AI        | LLM for natural language summary and threat scoring.          |
+| **Notification**   | Slack API               | Real-time messaging and ChatOps.                              |
+| **Notification**   | Gmail SMTP              | Formal incident reporting.                                    |
+| **Infrastructure** | Docker & Docker Compose | Containerization and orchestration.                           |
+| **Scripting**      | Python / Bash           | Custom integration scripts for Wazuh.                         |
+
+---
+
+## ⚙ Prerequisites
+
+Before deploying SILGAX, ensure you have the following:
+
+* **Hardware:**
+
+  * Minimum 8GB RAM (16GB Recommended for smooth ELK/Wazuh performance).
+  * 4 vCPUs.
+  * 100GB Disk Space.
+* **Software:**
+
+  * Ubuntu 20.04/22.04 LTS (Recommended).
+  * Docker & Docker Compose installed.
+  * Python 3.9+.
+* **API Keys:**
+
+  * **Google Cloud Project** with Gemini API enabled.
+  * **Slack App** webhook URL or Bot Token.
+  * **Gmail** App Password (for SMTP) or OAuth Client ID.
+
+---
+
+## 📦 Installation & Deployment
+
+### 1. Wazuh Deployment
+
+We utilize the standard Docker single-node deployment for Wazuh.
+
+```bash
+git clone https://github.com/wazuh/wazuh-docker.git -b v4.7.2
+cd wazuh-docker/single-node
+docker-compose -f generate-indexer-certs.yml run --rm generator
+docker-compose up -d
+```
+
+### 2. n8n Deployment
+
+```yaml
+version: "3"
+services:
+  n8n:
+    image: n8nio/n8n
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=secure_password
+      - WEBHOOK_URL=http://<YOUR_SERVER_IP>:5678/
+    volumes:
+      - ./n8n_data:/home/node/.n8n
+    restart: always
+```
+
+```bash
+docker-compose -f docker-compose.n8n.yml up -d
+```
+
+---
+
+## 🔗 Configuration & Integration
+
+### Step 1: Configuring Wazuh Manager
+
+Add inside `ossec.conf`:
+
+```xml
+<integration>
+  <name>custom-n8n</name>
+  <hook_url>http://<N8N_IP>:5678/webhook/wazuh-alert</hook_url>
+  <level>10</level> <alert_format>json</alert_format>
+</integration>
+```
+
+### Step 2: Creating the Integration Script
+
+```python
+#!/usr/bin/env python3
+import sys, json, requests
+alert_file = sys.argv[1]
+with open(alert_file) as f:
+    alert_json = json.load(f)
+payload = {"title": "Wazuh Alert", "alert": alert_json}
+requests.post(sys.argv[3], json=payload)
+```
+
+### Step 3: Setting up Google Gemini AI
+
+Create API key → Add to n8n Credentials.
+
+### Step 4: Building the n8n Workflow
+
+Prompt example:
+
+```
+You are a Cyber Security Analyst. Analyze the following Wazuh SIEM alert.
+...
+Provide JSON with keys: summary, severity_score, recommendation.
+```
+
+---
+
+## 🧠 Workflow Logic
+
+1. Ingestion
+2. Filter
+3. Enrichment
+4. AI Analysis
+5. Route
+
+---
+
+## 📊 Usage & Testing
+
+Simulate brute-force:
+
+```bash
+hydra -l root -P /usr/share/wordlists/rockyou.txt ssh://<AGENT_IP>
+```
+
+---
+
+## 🔧 Troubleshooting
+
+| Issue                | Cause             | Solution      |
+| -------------------- | ----------------- | ------------- |
+| Alerts not appearing | Integration error | Check logs    |
+| Gemini 429           | Rate limit        | Add Wait node |
+| Empty Slack message  | Parsing error     | Validate JSON |
+| Docker networking    | Isolation         | Same network  |
+
+---
+
+## 🗺 Roadmap
+
+* [ ] Phase 1
+* [ ] Phase
