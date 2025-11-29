@@ -1,4 +1,4 @@
-# SILGAX: AI-Powered Security Orchestration, Automation, and Response (SOAR) Platform
+# SILGAX: AI-Powered SOAR Platform
 
 ## 📋 Table of Contents
 
@@ -12,15 +12,14 @@
     * [2. n8n Deployment](#2-n8n-deployment)
 7.  [Configuration & Integration](#-configuration--integration)
     * [Step 1: Configuring Wazuh Manager](#step-1-configuring-wazuh-manager)
-    * [Step 2: Creating the Integration Script (custom-n8n.py)](#step-2-creating-the-integration-script-(custom-n8n.py))
+    * [Step 2: Creating the Integration Script](#step-2-creating-the-integration-script)
     * [Step 3: Setting up Google Gemini AI](#step-3-setting-up-google-gemini-ai)
     * [Step 4: Building the n8n Workflow](#step-4-building-the-n8n-workflow)
 8.  [Workflow Logic](#-workflow-logic)
 9.  [Usage & Testing](#-usage--testing)
 10. [Troubleshooting](#-troubleshooting)
 11. [Roadmap](#-roadmap)
-12. [Contributing](#-contributing)
-13. [License](#-license)
+12. [License](#-license)
 
 ---
 
@@ -159,7 +158,9 @@ Add inside `ossec.conf`:
 ```
 
 ### Step 2: Creating the Integration Script
-
+Wazuh needs a script to handle the "custom-n8n" integration name.
+1. **Create the script** at `/var/ossec/integrations/`
+2. **Permissions:** `chmod 750 /var/ossec/integrations/custom-n8n.py` & `chown root:wazuh`
 
 Restart Wazuh Manager:
 ```bash
@@ -242,15 +243,15 @@ To verify SILGAX is working, simulate a brute-force attack on a monitored agent.
 
 ## 🗺 Roadmap
 
-* [ ] **Phase 1:** Basic Integration (Wazuh -\> n8n -\> Gmail) [COMPLETED]
-* [ ] **Phase 2:** AI Integration (Gemini Contextualization) [COMPLETED]
-* [ ] **Phase 3:** Two-way communication (Approve IP Ban via Slack Button)
-* [ ] **Phase 4:** Threat Intelligence Feed Integration (AbuseIPDB, VirusTotal)
-* [ ] **Phase 5:** Automated Reporting (PDF Generation of Weekly Incidents)
+* [x] **Phase 1:** Basic Integration (Wazuh -\> n8n -\> Gmail)
+* [x] **Phase 2:** AI Integration (Gemini Contextualization)
+* [ ] **Phase 3:** Threat Intelligence Feed Integration (AbuseIPDB, VirusTotal)
+* [ ] **Phase 4:** Automated Reporting (PDF Generation of Weekly Incidents)
 
 ---
 
-📄 License
+## 📄 License
+
 Distributed under the MIT License. See LICENSE for more information.
 
 ---
