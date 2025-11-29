@@ -77,13 +77,13 @@ The SILGAX architecture follows a modular, event-driven design:
 
 | Component          | Technology              | Description                                                   |
 | :----------------- | :---------------------- | :------------------------------------------------------------ |
-| **SIEM / XDR**     | Wazuh 4.14 (Current)    | Log analysis, file integrity monitoring, intrusion detection. |
-| **Orchestrator**   | n8n                     | Workflow automation tool connecting disparate APIs.           |
-| **Intelligence**   | Google Gemini AI        | LLM for natural language summary and threat scoring.          |
-| **Notification**   | Slack API               | Real-time messaging and ChatOps.                              |
-| **Notification**   | Gmail SMTP              | Formal incident reporting.                                    |
-| **Infrastructure** | Docker & Docker Compose | Containerization and orchestration.                           |
-| **Scripting**      | Python / Bash           | Custom integration scripts for Wazuh.                         |
+| **SIEM / XDR**     | [Wazuh 4.14 (Current)](https://wazuh.com/)          | Log analysis, file integrity monitoring, intrusion detection. |
+| **Orchestrator**   | [n8n](https://n8n.io/)                              | Workflow automation tool connecting disparate APIs.           |
+| **Intelligence**   | [Google Gemini AI](https://aistudio.google.com/)    | LLM for natural language summary and threat scoring.          |
+| **Notification**   | [Slack API](https://api.slack.com/)                 | Real-time messaging and ChatOps.                              |
+| **Notification**   | [Gmail SMTP](https://console.cloud.google.com)      | Formal incident reporting.                                    |
+| **Infrastructure** | [Docker](https://www.docker.com)                    | Containerization and orchestration.                           |
+| **Scripting**      | Python / Bash                                       | Custom integration scripts for Wazuh.                         |
 
 ---
 
