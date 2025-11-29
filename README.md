@@ -37,6 +37,10 @@ Traditional SIEMs generate thousands of alerts. SOC analysts often suffer from "
 2. **AI Analysis:** Using LLMs to interpret "fuzzy" threats that rule-based engines might misclassify.
 3. **Instant Notification:** delivering formatted, actionable reports to communication channels.
 
+> **Target Audience: MSMEs**
+
+> SILGAX is specifically designed to support **Micro, Small and Medium Enterprises (MSMEs)**. Utilizing a completely **open-source** stack and **low-code/no-code** orchestration layer (n8n), SILGAX provides enterprise-grade security automation without the massive licensing costs or specialized coding skills. This makes advanced security accessible and affordable for smaller organizations.
+
 ---
 
 ## 🏗 System Architecture
