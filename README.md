@@ -228,9 +228,10 @@ To verify SILGAX is working, simulate a brute-force attack on a monitored agent.
    * **n8n Interface:** See the execution flow light up.
    * **Slack:** Receive a message:
      > 🚨 **Critical Security Alert**
-     > **Threat:** SSH Brute Force
-     > **AI Analysis:** Multiple failed logins detected. Likely automated dictionary attack.
-     > **Action:** Verify user identity or ban IP.
+
+      > **Threat:** SSH Brute Force
+      > **AI Analysis:** Multiple failed logins detected. Likely automated dictionary attack.
+      > **Action:** Verify user identity or ban IP.
 
 ---
 
